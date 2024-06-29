@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Document</title>
+  </head>
+  <body>
+    <input type="text" id="name" value="Daniel" required />
+    <button id="btn-greet">Greet</button>
+
+    <script type="module">
+      import ZigWASMWrapper from './helper.js';
+
+      let wasm = new ZigWASMWrapper('./main.wasm');
+
+      document.getElementById("btn-greet").addEventListener("click", () => {
+        const name = document.getElementById("name").value;
+
+        console.log(wasm.greet(name))
+
+        console.log(wasm.blake2b(name))
+      });
+
+      setTimeout(() => {
+        console.log(wasm.greet("Daniel"))
+
+        console.log(wasm.blake2b("this is a hashing input"))
+      }, 1000)
+    </script>
+  </body>
+</html>
