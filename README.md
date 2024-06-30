@@ -16,11 +16,38 @@ let wasm = new ZigWASMWrapper('./main.wasm');
 //
 //       Hide this behind a setTimeout or onclick to work.
 
-console.log(wasm.greet("Daniel"))
+console.log(wasm.greet("Daniel"));
 // => prints "Hello Daniel!"
 
-console.log(wasm.blake2b("this is a hashing input"))
-// => prints "509ce1763021d24541e6137abad7fa877fdd528b89e86fb6ef0a5e2230914a70"
+wasm.printJSON({message: "Greetings"});
+// => prints "JSON = {"message":"Greetings"}!"
+
+wasm.silence();
+// => does nothing
+```
+
+And the zig code excluding the type hanlding is also straightforward:
+
+```zig
+// type definitions and imports
+
+export fn greet(arg: String) String {
+    // Get the real value passed to us by javascript
+    const name = arg.value();
+
+    // ... this ignores some code of the actual code to print a message in between
+
+    // Generate a new greet message that we can return
+    const greetMessage = std.fmt.allocPrint(gpa, "Hello {s}!", .{name}) catch @panic("Oops");
+
+    // Return the greet message as a compatible type
+    return String.init(greetMessage);
+}
+
+export fn printJSON(arg: JSON) void {
+    const message = std.fmt.allocPrint(gpa, "JSON = {s}!", .{arg.value()}) catch @panic("Oops");
+    js.log(String.init(message));
+}
 ```
 
 > The wasm file is nearly 13kB in size (gzip around 6kB).

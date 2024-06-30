@@ -14,6 +14,33 @@
 
       let wasm = new ZigWASMWrapper('./main.wasm');
 
+      setTimeout(() => {
+        wasm.silence();
+
+        console.log(wasm.testVoid());
+        wasm.printVoid(null);
+
+        console.log(wasm.testBool());
+        wasm.printBool(true);
+
+        console.log(wasm.testInt());
+        wasm.printInt(-12345);
+
+        console.log(wasm.testUint());
+        wasm.printUint(12345);
+
+        console.log(wasm.testBytes());
+        wasm.printBytes(new TextEncoder().encode("Hello World"));
+
+        console.log(wasm.testString());
+        wasm.printString("Bye World");
+
+        console.log(wasm.testJSON());
+        wasm.printJSON({message: "Greetings"});
+
+        console.log(wasm.greet("Daniel"));
+      }, 100)
+
       function measure(label, func) {
         const t0 = performance.now();
 

@@ -1,28 +1,59 @@
-class ReturnType {
+class CompatibleType {
+    // let JsCompatibleType = enum(u3) { void = 0, bool = 1, int = 2, uint = 3, bytes = 4, string = 5, json = 6 };
+
     static #_void = 0;
-    static #_number = 1;
-    static #_bytes = 2;
-    static #_string = 3;
+    static #_bool = 1;
+    static #_int = 2;
+    static #_uint = 3;
+    static #_bytes = 4;
+    static #_string = 5;
+    static #_json = 6;
 
     static get void() { return this.#_void; }
-    static get number() { return this.#_number; }
+    static get bool() { return this.#_bool; }
+    static get int() { return this.#_int; }
+    static get uint() { return this.#_uint; }
     static get bytes() { return this.#_bytes; }
     static get string() { return this.#_string; }
+    static get json() { return this.#_json; }
+
+    static mapVarToCompatibleType(v) {
+        switch (typeof v) {
+            case 'string':
+                return this.string;
+            case 'number':
+                return (v < 0) ? this.int : this.uint;
+            case 'bigint':
+                return (v < 0n) ? this.int : this.uint;
+            case 'boolean':
+                return this.bool;
+            case 'symbol':
+                throw new Error("type not implemented")
+            case 'undefined':
+                return this.void;
+            case 'object': {
+                if (v instanceof Uint8Array || v instanceof ArrayBuffer) {
+                    return this.bytes;
+                }
+                return this.json;
+            }
+            case 'function':
+                throw new Error("type not implemented")
+        }
+    }
 }
 
 export default class ZigWASMWrapper {
     #wasm = null;
 
-    #textDecoder = new TextDecoder("utf-8", {
+    #textDecoder = new TextDecoder('utf-8', {
         ignoreBOM: true,
         fatal: true,
     });
-    #textEncoder = new TextEncoder("utf-8", {
+    #textEncoder = new TextEncoder('utf-8', {
         ignoreBOM: true,
         fatal: true,
     });
-
-    #returnTypeMap = {};
 
     constructor(wasmFile) {
         // TODO: Handle async loading of wasm
@@ -30,103 +61,132 @@ export default class ZigWASMWrapper {
         WebAssembly.instantiateStreaming(fetch(wasmFile), {
             js: {
                 log: (arg) => {
-                    const message = this.readZigString(arg);
+                    let message = this.decodeCompatibleType(arg).value;
                     console.log(message);
                 },
             },
         }).then((obj) => {
             this.#wasm = obj.instance.exports;
 
-            // Temporary data view for getUint8 function
-            const dv = new DataView(this.#wasm.memory.buffer);
-
             // Expose the exported custom functions that are not implementation relevant
-            for(const name of Object.keys(this.#wasm).filter(n => !['malloc', 'free', 'memory'].includes(n) && !n.endsWith('Return') )) {
+            for (let name of Object.keys(this.#wasm).filter(n => !['malloc', 'free', 'memory'].includes(n))) {
                 this[name] = (...args) => {
                     return this.call(name, ...args)
-                }
-
-                // Check if a return type is presented to use from the wasm
-                const possibleReturnType = this.#wasm[`${name}Return`]
-                if(possibleReturnType) {
-                    // NOTE: The wasm needs to store this as an u8 as well
-                    this.#returnTypeMap[name] = dv.getUint8(possibleReturnType.value);
                 }
             }
         });
     }
 
-    decodeZigString(arg) {
-        const ptr = Number(arg & 0xffffffffn);
-        const len = Number(arg >> 32n);
+    #getBufferFromBytesLikeValue(value) {
+        let ptr = Number(value & 0xffffffffn);
+        let len = Number(value >> 32n);
 
-        return { ptr, len };
+        return new Uint8Array(this.#wasm.memory.buffer, ptr, len);
     }
 
-    encodeZigString(ptr, len) {
-        return (BigInt(len) << 32n) | BigInt(ptr);
+    decodeCompatibleType(r) {
+        // A zig return is given to us as an array, direct calls from zig to js already use a bigint
+        if (Array.isArray(r) && r.length === 2) {
+            r = BigInt(r[0]) | (BigInt(r[1]) << 64n);
+        }
+
+        // Limit the bigint to 128bit
+        let fixedFullInfo = BigInt.asUintN(128, r);
+
+        let type = fixedFullInfo & 0b111n;
+        let value = fixedFullInfo >> 3n;
+
+        switch (Number(type)) {
+            case CompatibleType.void:
+                return { type };
+            case CompatibleType.bool:
+                return { type, value: !!!Number(value) };
+            case CompatibleType.int:
+                return { type, value: BigInt.asIntN(125, value) };
+            case CompatibleType.uint:
+                return { type, value };
+            case CompatibleType.bytes: {
+                let buf = this.#getBufferFromBytesLikeValue(value);
+
+                return { type, value: buf };
+            }
+            case CompatibleType.string: {
+                let buf = this.#getBufferFromBytesLikeValue(value);
+                let str = this.#textDecoder.decode(buf);
+
+                return { type, value: str };
+            }
+            case CompatibleType.json: {
+                let buf = this.#getBufferFromBytesLikeValue(value);
+                let str = this.#textDecoder.decode(buf);
+
+                return { type, value: JSON.parse(str) };
+            }
+            default:
+                throw new Error('Type is not implemented!');
+        }
     }
 
-    createZigString(str) {
-        const buf = this.#textEncoder.encode(str);
+    encodeCompatibleType(v) {
+        let t = CompatibleType.mapVarToCompatibleType(v);
 
-        const ptr = this.#wasm.malloc(buf.length);
-        const len = buf.length;
+        let value;
 
-        const memoryView = new Uint8Array(this.#wasm.memory.buffer, ptr, len);
-        memoryView.set(buf);
+        switch (t) {
+            case CompatibleType.void:
+                value = 0;
+                break;
+            case CompatibleType.bool:
+            case CompatibleType.int:
+            case CompatibleType.uint:
+                value = v;
+                break;
+            case CompatibleType.bytes: {
+                let buf = v;
+                let len = buf.length;
+                let ptr = this.#wasm.malloc(len);
 
-        return this.encodeZigString(ptr, len);
-    }
+                new Uint8Array(this.#wasm.memory.buffer, ptr, len).set(buf)
 
-    readZigString(arg) {
-        const {ptr, len} = this.decodeZigString(arg);
-        if (len === 0) return "";
-        return this.#textDecoder.decode(new Uint8Array(this.#wasm.memory.buffer, ptr, len));
-    }
+                value = (BigInt(len) << 32n) | BigInt(ptr);
+                break;
+            }
+            case CompatibleType.string: {
+                let buf = this.#textEncoder.encode(v);
+                let len = buf.length;
+                let ptr = this.#wasm.malloc(len);
 
-    freeZigString(arg) {
-        const {ptr, len} = this.decodeZigString(arg);
-        this.#wasm.free(ptr, len);
+                new Uint8Array(this.#wasm.memory.buffer, ptr, len).set(buf)
+
+                value = (BigInt(len) << 32n) | BigInt(ptr);
+                break;
+            }
+            case CompatibleType.json: {
+                let buf = this.#textEncoder.encode(JSON.stringify(v));
+                let len = buf.length;
+                let ptr = this.#wasm.malloc(len);
+
+                new Uint8Array(this.#wasm.memory.buffer, ptr, len).set(buf)
+
+                value = (BigInt(len) << 32n) | BigInt(ptr);
+                break;
+            }
+            default:
+                throw new Error('Invalid CompatibleType for encoding');
+        }
+
+        let fullInfo = BigInt.asUintN(3, BigInt(t)) | (BigInt.asUintN(125, BigInt(value)) << 3n);
+        let r = [fullInfo & 0xffffffffffffffffn, fullInfo >> 64n]
+
+        return r;
     }
 
     call(func, ...args) {
-        // Callbacks to free up the passed along allocated arguments
-        const freeCallbacks = [];
+        // TODO: Implement freeing memory again after allocation/reading
+        let wasmArgs = args.map(a => this.encodeCompatibleType(a)).flat();
 
-        // Map JS arguments to WASM compatible ones
-        const wasmArgs = args.map(arg => {
-            if(typeof arg === 'string') {
-                const zStr = this.createZigString(arg);
-                freeCallbacks.push(() => this.freeZigString(zStr));
-                return zStr;
-            }
+        let r = this.#wasm[func](...wasmArgs);
 
-            return arg;
-        })
-
-        // Call the wasm function with the passed arguments
-        const r = this.#wasm[func](...wasmArgs);
-
-        // Free up the allocated arguments
-        freeCallbacks.forEach(c => c());
-
-        // Check if there is a return type function present
-        // TODO: Make this a constant value and read during constructor
-        //       to build a return-type-mapping map
-        const returnType = this.#returnTypeMap[func];
-        if(returnType) {
-            // Parse the return value with the specified return type
-            switch (returnType) {
-                case ReturnType.string:
-                    // TODO: Read this into a JS string and free the wasm one
-                    return this.readZigString(r);
-                default:
-                    // TODO: Implement reading bytes slice
-                    return r;
-            }
-        }
-
-        return r;
+        return r ? this.decodeCompatibleType(r).value : undefined;
     }
 }
