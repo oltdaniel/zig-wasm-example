@@ -45,7 +45,7 @@ export fn printJSON(arg: JSON) void {
 }
 ```
 
-> The wasm file is nearly 13kB in size (gzip around 6kB).
+> The wasm file is about 18kB in size (gzip around 8kB).
 
 ## Requirements
 
