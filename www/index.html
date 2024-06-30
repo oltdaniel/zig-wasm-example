@@ -10,76 +10,81 @@
     <button id="btn-greet">Greet</button>
 
     <script type="module">
-      import ZigWASMWrapper from './helper.js';
+      import ZigWASMWrapper from "./helper.js";
 
-      let wasm = new ZigWASMWrapper('./main.wasm');
+      let wasm = await ZigWASMWrapper.initialize("./main.wasm");
 
-      setTimeout(() => {
-        wasm.silence();
+      // === Interface Test ===
+      wasm.silence();
 
-        console.log(wasm.testVoid());
-        wasm.printVoid(null);
+      console.log(wasm.testVoid());
+      wasm.printVoid(null);
 
-        console.log(wasm.testBool());
-        wasm.printBool(true);
+      console.log(wasm.testBool());
+      wasm.printBool(true);
 
-        console.log(wasm.testInt());
-        wasm.printInt(-12345);
+      console.log(wasm.testInt());
+      wasm.printInt(-12345);
 
-        console.log(wasm.testUint());
-        wasm.printUint(12345);
+      console.log(wasm.testUint());
+      wasm.printUint(12345);
 
-        console.log(wasm.testBytes());
-        wasm.printBytes(new TextEncoder().encode("Hello World"));
+      console.log(wasm.testBytes());
+      wasm.printBytes(new TextEncoder().encode("Hello World"));
 
-        console.log(wasm.testString());
-        wasm.printString("Bye World");
+      console.log(wasm.testString());
+      wasm.printString("Bye World");
 
-        console.log(wasm.testJSON());
-        wasm.printJSON({message: "Greetings"});
+      console.log(wasm.testJSON());
+      wasm.printJSON({ message: "Greetings" });
 
-        console.log(wasm.greet("Daniel"));
-      }, 100)
+      console.log(wasm.greet("Daniel"));
 
+      // === Example Application ===
       function measure(label, func) {
         const t0 = performance.now();
 
         func();
 
         const t1 = performance.now();
-        console.log(`${label} took ${t1 -t0}ms.`)
+        console.log(`${label} took ${t1 - t0}ms.`);
       }
 
       document.getElementById("btn-greet").addEventListener("click", () => {
-        measure('greet and hash', () => {
+        measure("greet and hash", () => {
           const name = document.getElementById("name").value;
 
-          console.log(wasm.greet(name))
+          console.log(wasm.greet(name));
 
-          console.log(wasm.blake2b(`this is a hashing input for ${name}`))
-        })
+          console.log(wasm.blake2b(`this is a hashing input for ${name}`));
+        });
       });
 
-      setTimeout(() => {
-        measure('initial greet and hash', () => {
-          console.log(wasm.greet("Daniel"))
+      measure("initial greet and hash", () => {
+        console.log(wasm.greet("Daniel"));
 
-          console.log(wasm.blake2b("This is just some hashing input to think about"))
-        })
+        console.log(
+          wasm.blake2b("This is just some hashing input to think about")
+        );
+      });
 
-        const ROUNDS = 1000;
+      // === Hash Benchmark ===
+      const ROUNDS = 1000;
 
-        const t0 = performance.now();
+      const t0 = performance.now();
 
-        for(let i = 0; i < ROUNDS; i++) {
-          // NOTE: There is an obvious performance penalty here, in JS and Zig,
-          //       compared to raw native performance.
-          wasm.blake2b('Some hash');
-        }
+      for (let i = 0; i < ROUNDS; i++) {
+        // NOTE: There is an obvious performance penalty here, in JS and Zig,
+        //       compared to raw native performance.
+        wasm.blake2b("Some hash");
+      }
 
-        const t1 = performance.now();
-        console.log(`Benchmark (hash with ${ROUNDS}rounds): total=${t1 - t0}ms; per round=${(t1 -t0) / ROUNDS}`)
-      }, 1000)
+      const t1 = performance.now();
+      console.log(
+        `Benchmark (hash with ${ROUNDS}rounds): total=${t1 - t0}ms; per round=${
+          (t1 - t0) / ROUNDS
+        }`
+      );
     </script>
   </body>
 </html>

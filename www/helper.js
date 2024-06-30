@@ -55,26 +55,36 @@ export default class ZigWASMWrapper {
         fatal: true,
     });
 
-    constructor(wasmFile) {
-        // TODO: Handle async loading of wasm
-        //       -> offer an static initialize call for abstraction instead
-        WebAssembly.instantiateStreaming(fetch(wasmFile), {
+    constructor() {
+        
+    }
+
+    loadWasmObj(obj) {
+        this.#wasm = obj.instance.exports;
+
+        // Expose the exported custom functions that are not implementation relevant
+        for (let name of Object.keys(this.#wasm).filter(n => !['malloc', 'free', 'memory'].includes(n))) {
+            this[name] = (...args) => {
+                return this.call(name, ...args)
+            }
+        }
+    }
+
+    static async initialize(wasmFile) {
+        let inst = new this();
+
+        const obj = await WebAssembly.instantiateStreaming(fetch(wasmFile), {
             js: {
                 log: (arg) => {
-                    let message = this.decodeCompatibleType(arg).value;
+                    let message = inst.decodeCompatibleType(arg).value;
                     console.log(message);
                 },
             },
-        }).then((obj) => {
-            this.#wasm = obj.instance.exports;
+        })
 
-            // Expose the exported custom functions that are not implementation relevant
-            for (let name of Object.keys(this.#wasm).filter(n => !['malloc', 'free', 'memory'].includes(n))) {
-                this[name] = (...args) => {
-                    return this.call(name, ...args)
-                }
-            }
-        });
+        inst.loadWasmObj(obj);
+
+        return inst;
     }
 
     #getBufferFromBytesLikeValue(value) {

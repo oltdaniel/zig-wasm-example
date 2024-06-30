@@ -9,12 +9,7 @@ This is an example which hides type handling behind a Helper class.
 ```js
 import ZigWASMWrapper from './helper.js';
 
-let wasm = new ZigWASMWrapper('./main.wasm');
-
-// TODO: The constructor currently requires async fetch to load the wasm,
-//       thereby this code as show here does not work due to timing delays.
-//
-//       Hide this behind a setTimeout or onclick to work.
+let wasm = await ZigWASMWrapper.initialize("./main.wasm");
 
 console.log(wasm.greet("Daniel"));
 // => prints "Hello Daniel!"
