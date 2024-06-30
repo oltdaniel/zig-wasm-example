@@ -27,6 +27,8 @@ const String = Slice(u8);
 
 fn Slice(T: type) type {
     return packed struct(u64) {
+        // TODO: waste some bits for type information to allow for all kind of values
+        //       passed between zig and js to avoid some kind of weird type information exchange.
         ptr: u32,
         len: u32,
 
