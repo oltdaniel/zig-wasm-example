@@ -14,18 +14,44 @@
 
       let wasm = new ZigWASMWrapper('./main.wasm');
 
+      function measure(label, func) {
+        const t0 = performance.now();
+
+        func();
+
+        const t1 = performance.now();
+        console.log(`${label} took ${t1 -t0}ms.`)
+      }
+
       document.getElementById("btn-greet").addEventListener("click", () => {
-        const name = document.getElementById("name").value;
+        measure('greet and hash', () => {
+          const name = document.getElementById("name").value;
 
-        console.log(wasm.greet(name))
+          console.log(wasm.greet(name))
 
-        console.log(wasm.blake2b(name))
+          console.log(wasm.blake2b(`this is a hashing input for ${name}`))
+        })
       });
 
       setTimeout(() => {
-        console.log(wasm.greet("Daniel"))
+        measure('initial greet and hash', () => {
+          console.log(wasm.greet("Daniel"))
 
-        console.log(wasm.blake2b("this is a hashing input"))
+          console.log(wasm.blake2b("This is just some hashing input to think about"))
+        })
+
+        const ROUNDS = 1000;
+
+        const t0 = performance.now();
+
+        for(let i = 0; i < ROUNDS; i++) {
+          // NOTE: There is an obvious performance penalty here, in JS and Zig,
+          //       compared to raw native performance.
+          wasm.blake2b('Some hash');
+        }
+
+        const t1 = performance.now();
+        console.log(`Benchmark (hash with ${ROUNDS}rounds): total=${t1 - t0}ms; per round=${(t1 -t0) / ROUNDS}`)
       }, 1000)
     </script>
   </body>

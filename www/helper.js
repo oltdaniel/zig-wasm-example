@@ -22,22 +22,35 @@ export default class ZigWASMWrapper {
         fatal: true,
     });
 
+    #returnTypeMap = {};
+
     constructor(wasmFile) {
-        const t = this;
+        // TODO: Handle async loading of wasm
+        //       -> offer an static initialize call for abstraction instead
         WebAssembly.instantiateStreaming(fetch(wasmFile), {
             js: {
                 log: (arg) => {
-                    const message = t.readZigString(arg);
+                    const message = this.readZigString(arg);
                     console.log(message);
                 },
             },
         }).then((obj) => {
-            t.#wasm = obj.instance.exports;
+            this.#wasm = obj.instance.exports;
+
+            // Temporary data view for getUint8 function
+            const dv = new DataView(this.#wasm.memory.buffer);
 
             // Expose the exported custom functions that are not implementation relevant
             for(const name of Object.keys(this.#wasm).filter(n => !['malloc', 'free', 'memory'].includes(n) && !n.endsWith('Return') )) {
-                t[name] = (...args) => {
-                    return t.call(name, ...args)
+                this[name] = (...args) => {
+                    return this.call(name, ...args)
+                }
+
+                // Check if a return type is presented to use from the wasm
+                const possibleReturnType = this.#wasm[`${name}Return`]
+                if(possibleReturnType) {
+                    // NOTE: The wasm needs to store this as an u8 as well
+                    this.#returnTypeMap[name] = dv.getUint8(possibleReturnType.value);
                 }
             }
         });
@@ -101,14 +114,15 @@ export default class ZigWASMWrapper {
         // Check if there is a return type function present
         // TODO: Make this a constant value and read during constructor
         //       to build a return-type-mapping map
-        const returnType = this.#wasm[`${func}Return`];
+        const returnType = this.#returnTypeMap[func];
         if(returnType) {
             // Parse the return value with the specified return type
-            switch (returnType()) {
+            switch (returnType) {
                 case ReturnType.string:
                     // TODO: Read this into a JS string and free the wasm one
                     return this.readZigString(r);
                 default:
+                    // TODO: Implement reading bytes slice
                     return r;
             }
         }

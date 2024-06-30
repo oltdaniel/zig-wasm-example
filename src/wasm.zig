@@ -51,6 +51,7 @@ fn Slice(T: type) type {
     };
 }
 
+// NOTE: JS expects this to be an u8
 const ReturnType = enum(u8) {
     void = 0,
     number = 1,
@@ -63,7 +64,7 @@ export fn greet(arg: String) String {
     const name = arg.value();
 
     // Generate a small log message with the passed argument
-    const logMessage = std.fmt.allocPrint(gpa, "Generating message for {s}!", .{name}) catch @panic("Oops");
+    const logMessage = std.fmt.allocPrint(gpa, "Greeting {s} directly from zig!", .{name}) catch @panic("Oops");
     defer gpa.free(logMessage);
 
     // Log the message to the console back to javascript
@@ -76,11 +77,8 @@ export fn greet(arg: String) String {
     return String.init(greetMessage);
 }
 
-// Ugly workaround to dynamicaly set the return type for the function
-// so we can do an automatic decoding on the JS side.
-export fn greetReturn() ReturnType {
-    return ReturnType.string;
-}
+// Workaround to avoid parsing this zig file and generate a type mapping for JS
+export const greetReturn = ReturnType.string;
 
 // Another example just as above
 
@@ -99,6 +97,4 @@ export fn blake2b(arg: String) String {
     return String.init(outHexPtr);
 }
 
-export fn blake2bReturn() ReturnType {
-    return ReturnType.string;
-}
+export const blake2bReturn = ReturnType.string;
