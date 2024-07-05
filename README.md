@@ -62,3 +62,11 @@ make
 # start the server
 make server
 ```
+
+## Information
+
+A small blog article on how I ended up writing this repo: [Playing with zig and wasm](https://oltdaniel.eu/blog/2024/playing-with-zig-and-wasm.html)
+
+## License
+
+[LICENSE MIT](./LICENSE)
