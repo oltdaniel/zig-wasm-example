@@ -16,15 +16,19 @@ pub export fn free(buf: [*]u8, length: usize) void {
     gpa.free(buf[0..length]);
 }
 
+// TODO: Add exported function to call zig functions
+
 // External functions that are hooked in from the JS enviornment.
 const js = struct {
     extern "js" fn log(arg: String) void;
+
+    // TODO import call function from js interface
 };
 
-const JsCompatibleType = enum(u3) { void = 0, bool = 1, int = 2, uint = 3, bytes = 4, string = 5, json = 6 };
+const JsCompatibleType = enum(u4) { void = 0, bool = 1, int = 2, uint = 3, float = 4, bytes = 5, string = 6, json = 7, function = 8 };
 
 fn EncodedType(comptime JsT: JsCompatibleType, comptime T: type) type {
-    if (@bitSizeOf(T) > 125) {
+    if (@bitSizeOf(T) > 124) {
         @compileError("You try to have an encoded type with more than 125bit value");
     }
 
@@ -45,15 +49,33 @@ fn EncodedType(comptime JsT: JsCompatibleType, comptime T: type) type {
     };
 }
 
-const UnsignedInteger = EncodedType(.uint, u125);
-const Integer = EncodedType(.int, i125);
+const Integer = EncodedType(.int, i124);
+const UnsignedInteger = EncodedType(.uint, u124);
+
+const Float = packed struct(u128) {
+    type: JsCompatibleType = .float,
+    v: f64,
+
+    // Placeholder to keep fixed packed structs filled
+    _: u60 = 0,
+
+    fn init(v: f64) @This() {
+        return .{
+            .v = v,
+        };
+    }
+
+    fn value(self: @This()) f64 {
+        return self.v;
+    }
+};
 
 fn BoolLike(comptime jsT: JsCompatibleType) type {
     return packed struct(u128) {
         type: JsCompatibleType = jsT,
         v: bool,
         // Placeholder to keep fixed packed structs filled
-        _: u124 = 0,
+        _: u123 = 0,
 
         fn init(v: bool) @This() {
             return .{
@@ -80,7 +102,7 @@ fn BytesLike(comptime jsT: JsCompatibleType) type {
         len: u32,
 
         // Placeholder to keep fixed packed structs filled
-        _: u61 = 0,
+        _: u60 = 0,
 
         fn init(v: []const u8) @This() {
             return .{
@@ -105,6 +127,44 @@ const String = BytesLike(.string);
 // In zig there isn't a difference
 // TODO: Maybe abstract this to offer builtin parsing when calling .value
 const JSON = BytesLike(.json);
+
+// TODO: Maybe move this to a "array of compatible types" like type instead of function specific
+const FunctionArguments = packed struct(u128) {
+    ptr: usize,
+    len: usize,
+    _: u64 = 0,
+    const empty: @This() = .{ .ptr = 0, .len = 0 };
+};
+
+fn FunctionLike(comptime returnType: anytype) type {
+    return packed struct(u128) {
+        type: JsCompatibleType = .function,
+
+        ptr: usize,
+        origin: enum(u1) { zig = 0, js = 1 },
+
+        _: u91 = 0,
+
+        const FunctionType = fn (args: FunctionArguments) returnType;
+
+        fn init(function: FunctionType) @This() {
+            return .{
+                .ptr = @intFromPtr(&function),
+                .origin = .zig,
+            };
+        }
+
+        fn call(self: @This(), args: FunctionArguments) returnType {
+            const function: *const FunctionType = @ptrFromInt(self.ptr);
+            if (self.origin == .zig) {
+                return @call(.auto, function, .{args});
+            } else {
+                // TODO: Import JS Call logic here
+                unreachable;
+            }
+        }
+    };
+}
 
 export fn greet(arg: String) String {
     // Get the real value passed to us by javascript
@@ -181,6 +241,15 @@ export fn printUint(arg: UnsignedInteger) void {
     js.log(String.init(message));
 }
 
+export fn testFloat() Float {
+    return Float.init(1.2345);
+}
+
+export fn printFloat(arg: Float) void {
+    const message = std.fmt.allocPrint(gpa, "Float = {any}!", .{arg.value()}) catch @panic("Oops");
+    js.log(String.init(message));
+}
+
 export fn testBytes() Bytes {
     return Bytes.init("Hello World");
 }
@@ -206,4 +275,16 @@ export fn testJSON() JSON {
 export fn printJSON(arg: JSON) void {
     const message = std.fmt.allocPrint(gpa, "JSON = {s}!", .{arg.value()}) catch @panic("Oops");
     js.log(String.init(message));
+}
+
+fn printHelloWorld(_: FunctionArguments) void {
+    js.log(String.init("This function was passed as an argument."));
+}
+
+export fn testFunctionRef() FunctionLike(void) {
+    return FunctionLike(void).init(printHelloWorld);
+}
+
+export fn testFunction(arg: FunctionLike(void)) void {
+    arg.call(FunctionArguments.empty);
 }

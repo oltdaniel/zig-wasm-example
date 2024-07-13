@@ -29,6 +29,9 @@
       console.log(wasm.testUint());
       wasm.printUint(12345);
 
+      console.log(wasm.testFloat());
+      wasm.printFloat(1.2345);
+
       console.log(wasm.testBytes());
       wasm.printBytes(new TextEncoder().encode("Hello World"));
 
@@ -37,6 +40,9 @@
 
       console.log(wasm.testJSON());
       wasm.printJSON({ message: "Greetings" });
+
+      const testFunctionRef = wasm.testFunctionRef();
+      console.log(wasm.testFunction(testFunctionRef));
 
       console.log(wasm.greet("Daniel"));
 
