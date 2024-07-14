@@ -64,12 +64,9 @@ export default class ZigWASMWrapper {
         fatal: true,
     });
 
-    // TODO: Give a JS function a unique reference for calls
     #functionTable = {}
 
-    constructor() {
-        
-    }
+    constructor() {}
 
     loadWasmObj(obj) {
         this.#wasm = obj.instance.exports;
@@ -303,11 +300,51 @@ export default class ZigWASMWrapper {
     }
 
     call(func, ...args) {
-        // TODO: Implement freeing memory again after allocation/reading
-        //       Also free JS allocated resources like the function in the function table
         let wasmArgs = args.map(a => this.encodeCompatibleType(a)).flat();
 
         let r = this.#wasm[func](...wasmArgs);
+
+        // TODO: Make this a bit cleaner
+        for(let i = 0; i < wasmArgs.length; i += 2) {
+            const r = BigInt.asUintN(64, wasmArgs[i]) | (BigInt.asUintN(64, wasmArgs[i + 1]) << 64n);
+
+            // Limit the bigint to 128bit
+            let fixedFullInfo = BigInt.asUintN(128, r);
+
+            let type = fixedFullInfo & 0b1111n;
+            let value = fixedFullInfo >> 4n;
+            
+            switch(Number(type)) {
+                case CompatibleType.void:
+                case CompatibleType.bool:    
+                case CompatibleType.int:
+                case CompatibleType.uint:
+                case CompatibleType.float:
+                    // No cleanup necessary
+                    break;
+                case CompatibleType.bytes:
+                case CompatibleType.string:
+                case CompatibleType.json: {
+                    let ptr = Number(value & 0xffffffffn);
+                    let len = Number(value >> 32n);
+                    this.#wasm.free(ptr, len);
+                    break;
+                }
+                case CompatibleType.function:
+                    // TODO: Test on how to handle this best
+                    break;
+                case CompatibleType.array: {
+                    let ptr = Number(value & 0xffffffffn);
+                    let len = Number(value >> 32n);
+
+                    // NOTE: Length for array represents number of items, each item 128bit
+                    this.#wasm.free(ptr, len * 16);
+                    break;
+                }
+                default:
+                    throw new Error('Cleanup cannot be handled for this type')
+            }
+        }
 
         return r ? this.decodeCompatibleType(r).value : undefined;
     }
