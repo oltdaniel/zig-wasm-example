@@ -1,5 +1,5 @@
 class CompatibleType {
-    // const JsCompatibleType = enum(u4) { void = 0, bool = 1, int = 2, uint = 3, float = 4, bytes = 5, string = 6, json = 7, function = 8 };
+    // const JsCompatibleType = enum(u4) { void = 0, bool = 1, int = 2, uint = 3, float = 4, bytes = 5, string = 6, json = 7, function = 8, array = 9 };
 
     static #_void = 0;
     static #_bool = 1;
@@ -87,20 +87,20 @@ export default class ZigWASMWrapper {
 
         const obj = await WebAssembly.instantiateStreaming(fetch(wasmFile), {
             js: {
-                log: (arg) => {
-                    let message = inst.decodeCompatibleType(arg).value;
+                log: (arg, arg2) => {
+                    let message = inst.decodeCompatibleType([arg, arg2]).value;
                     console.log(message);
                 },
-                call: (func, args) => {
-                    let f = inst.decodeCompatibleType(func).value;
+                call: (func, func2, args, args2) => {
+                    let f = inst.decodeCompatibleType([func, func2]).value;
 
                     if(Object.getPrototypeOf(f).origin != 1) {
                         throw new Error('Function to be executed in JS expected to be of JS origin.');
                     }
 
-                    let a = inst.decodeCompatibleType(args).value;
-                    
-                    return inst.encodeCompatibleType(f(a));
+                    let a = inst.decodeCompatibleType([args, args2]).value;
+
+                    return inst.encodeCompatibleType(f(...a));
                 }
             },
         })
@@ -188,6 +188,20 @@ export default class ZigWASMWrapper {
 
                 return { type, value: boundF };
             }
+            case CompatibleType.array: {
+                const ptr = BigInt.asUintN(32, value);
+                const len = BigInt.asUintN(32, value >> 32n);
+
+                const tempBuf = new BigUint64Array(this.#wasm.memory.buffer, Number(ptr), Number(len * 2n));
+
+                const decodedArray = [];
+                for(let i = 0; i < len; i++) {
+                    decodedArray.push(this.decodeCompatibleType(Array.from(tempBuf.subarray(i * 2, (i + 1) * 2))).value)
+                }
+                
+
+                return { type, value: decodedArray }
+            }
             default:
                 throw new Error('Type is not implemented!');
         }
@@ -250,15 +264,32 @@ export default class ZigWASMWrapper {
                     value = (BigInt.asUintN(1, v.prototype.origin) << 32n) | BigInt.asUintN(32, v.prototype.ptr);
                 } else {
                     const key = Object.keys(this.#functionTable).length;
-                    this.#functionTable[key] = v;
+                    this.#functionTable[key] = (args) => {
+                        return v(...args)
+                    };
 
                     value = (BigInt.asUintN(1, 1n) << 32n) | BigInt.asUintN(32, BigInt(key));
                 }
                 break;
             }
             case CompatibleType.array: {
-                // TODO: implement array logic
-                value = 0;
+                if(v.length == 0) {
+                    value = 0;
+                    break;
+                }
+
+                const len = v.length * 16;
+                const ptr = this.#wasm.malloc(len)
+                const tempBuf = new BigUint64Array(this.#wasm.memory.buffer, ptr, len)
+
+                for(let i = 0; i < v.length; i++) {
+                    const encodedEl = this.encodeCompatibleType(v[i]);
+                    
+                    tempBuf[i * 2] = encodedEl[0];
+                    tempBuf[(i * 2) + 1] = encodedEl[1];
+                }
+
+                value = (BigInt.asUintN(32, BigInt(v.length)) << 32n) | BigInt.asUintN(32, BigInt(ptr));
                 break;
             }
             default:

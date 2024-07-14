@@ -33,6 +33,10 @@ const js = struct {
 
 const JsCompatibleType = enum(u4) { void = 0, bool = 1, int = 2, uint = 3, float = 4, bytes = 5, string = 6, json = 7, function = 8, array = 9 };
 
+fn assertType(a: JsCompatibleType, b: JsCompatibleType) void {
+    if (a != b) @panic("Mismatched type");
+}
+
 const AnyType = packed struct(u128) {
     type: JsCompatibleType,
     value: u124,
@@ -55,6 +59,7 @@ fn EncodedType(comptime JsT: JsCompatibleType, comptime T: type) type {
         }
 
         fn value(self: @This()) T {
+            assertType(self.type, JsT);
             return self.v;
         }
 
@@ -81,6 +86,7 @@ const Float = packed struct(u128) {
     }
 
     fn value(self: @This()) f64 {
+        assertType(self.type, .float);
         return self.v;
     }
 
@@ -89,9 +95,9 @@ const Float = packed struct(u128) {
     }
 };
 
-fn BoolLike(comptime jsT: JsCompatibleType) type {
+fn BoolLike(comptime JsT: JsCompatibleType) type {
     return packed struct(u128) {
-        type: JsCompatibleType = jsT,
+        type: JsCompatibleType = JsT,
         v: bool,
         // Placeholder to keep fixed packed structs filled
         _: u123 = 0,
@@ -103,6 +109,7 @@ fn BoolLike(comptime jsT: JsCompatibleType) type {
         }
 
         fn value(self: @This()) bool {
+            assertType(self.type, JsT);
             return self.v;
         }
 
@@ -115,9 +122,9 @@ fn BoolLike(comptime jsT: JsCompatibleType) type {
 const Void = BoolLike(.void);
 const Bool = BoolLike(.bool);
 
-fn BytesLike(comptime jsT: JsCompatibleType) type {
+fn BytesLike(comptime JsT: JsCompatibleType) type {
     return packed struct(u128) {
-        type: JsCompatibleType = jsT,
+        type: JsCompatibleType = JsT,
         // NOTE: WASM currently focuses on memory32 (this can be expanded in the future)
         // TODO: Make this dependent on the compile target (.wasm32 or .wasm64)
         //       -> this means probably .len needs to be cut 3bits for remaining type info
@@ -136,6 +143,8 @@ fn BytesLike(comptime jsT: JsCompatibleType) type {
 
         // Shortcut to easily access real value when received as an argument
         fn value(self: @This()) []const u8 {
+            assertType(self.type, JsT);
+
             const vPtr: [*]u8 = @ptrFromInt(self.ptr);
             return vPtr[0..self.len];
         }
@@ -158,10 +167,37 @@ const JSON = BytesLike(.json);
 // TODO: Maybe move this to a "array of compatible types" like type instead of function specific
 const Array = packed struct(u128) {
     type: JsCompatibleType = .array,
-    ptr: usize,
-    len: usize,
+    ptr: usize = 1234,
+    len: usize = 5678,
     _: u60 = 0,
+
     const empty: @This() = .{ .ptr = 0, .len = 0 };
+
+    fn init(capacity: usize) @This() {
+        const ptr = gpa.alloc(AnyType, capacity) catch @panic("Oops");
+        return .{
+            .ptr = @intFromPtr(ptr.ptr),
+            .len = capacity,
+        };
+    }
+
+    fn from(arr: []const AnyType) @This() {
+        const newArray = init(arr.len);
+        for (arr, 0..) |el, i| {
+            newArray.set(i, el);
+        }
+        return newArray;
+    }
+
+    fn set(self: @This(), index: usize, value: AnyType) void {
+        const arr: [*]AnyType = @ptrFromInt(self.ptr);
+        arr[index] = value;
+    }
+
+    fn get(self: @This(), index: usize) AnyType {
+        const arr: [*]AnyType = @ptrFromInt(self.ptr);
+        return arr[index];
+    }
 
     fn asAny(self: @This()) AnyType {
         return @bitCast(self);
@@ -186,8 +222,10 @@ const Function = packed struct(u128) {
     }
 
     fn call(self: @This(), args: Array) AnyType {
-        const function: *const FunctionType = @ptrFromInt(self.ptr);
+        assertType(self.type, .function);
+
         if (self.origin == .zig) {
+            const function: *const FunctionType = @ptrFromInt(self.ptr);
             return @call(.auto, function, .{args});
         } else {
             return js.call(self, args);
@@ -310,16 +348,23 @@ export fn printJSON(arg: JSON) void {
     js.log(String.init(message));
 }
 
-fn printHelloWorld(_: Array) AnyType {
-    js.log(String.init("This function was passed as an argument."));
+fn printHelloWorld(arg: Array) AnyType {
+    const message = std.fmt.allocPrint(gpa, "This Zig function was passed as an argument and received {d} argument(s)!", .{arg.len}) catch @panic("Oops");
 
-    return Void.init(false).asAny();
+    js.log(String.init(message));
+
+    return String.init("Zig says hi!").asAny();
 }
 
 export fn testFunctionRef() Function {
     return Function.init(printHelloWorld);
 }
 
-export fn testFunction(arg: Function) void {
-    _ = arg.call(Array.empty);
+export fn testFunction(arg: Function) AnyType {
+    const args = Array.from(&.{ String.init("Hello").asAny(), String.init("World").asAny() });
+    return arg.call(args);
+}
+
+export fn testFunctionWithArgs(arg: Function, args: Array) AnyType {
+    return arg.call(args);
 }

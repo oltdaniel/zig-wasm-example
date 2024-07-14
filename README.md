@@ -47,6 +47,12 @@ export fn printJSON(arg: JSON) void {
 
 > The wasm file is about 18kB in size (gzip around 8kB).
 
+## Known pitfalls
+
+- Introducing the dynamic and untyped nature of JS into Zig requires additional verification of types during runtime. Other libraries generate the JS interface to avoid pitfalls like this, but they require an additional compile step and delivery of the custom compiled WASM file as well as the JS file. Thereby, assuming types is ignorant just like in JS and you need to verify them "manually". **NOTE**: The Compatible Types built in Zig verify their type when a type specific action is executed (like calling `.value()` or `.call()`).
+- When Zig returns or accepts non-compatible types, the behavior is undefined or rather the same was with not using the library. This means, the built-in abstraction on the JS side won't work as it expects compatible types.
+- There is currently no abstraction for memory allocation. If something like a string of length zero is requested for allocation, it fails.
+
 ## Requirements
 
 - zig, I'm running the latest release `0.13`
