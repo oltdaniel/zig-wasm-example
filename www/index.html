@@ -42,7 +42,11 @@
       wasm.printJSON({ message: "Greetings" });
 
       const testFunctionRef = wasm.testFunctionRef();
-      console.log(wasm.testFunction(testFunctionRef));
+      testFunctionRef();
+
+      console.log(wasm.testFunction((args) => {
+        console.log('I got called by reference from Zig with these arguments =', args)
+      }))
 
       console.log(wasm.greet("Daniel"));
 

@@ -16,16 +16,27 @@ pub export fn free(buf: [*]u8, length: usize) void {
     gpa.free(buf[0..length]);
 }
 
-// TODO: Add exported function to call zig functions
+// Call a zig function by reference
+pub export fn call(function: Function, args: Array) AnyType {
+    if (function.origin != .zig) {
+        @panic("Function to be executed in Zig expected to be of Zig origin.");
+    }
+
+    return function.call(args);
+}
 
 // External functions that are hooked in from the JS enviornment.
 const js = struct {
     extern "js" fn log(arg: String) void;
-
-    // TODO import call function from js interface
+    extern "js" fn call(function: Function, args: Array) AnyType;
 };
 
-const JsCompatibleType = enum(u4) { void = 0, bool = 1, int = 2, uint = 3, float = 4, bytes = 5, string = 6, json = 7, function = 8 };
+const JsCompatibleType = enum(u4) { void = 0, bool = 1, int = 2, uint = 3, float = 4, bytes = 5, string = 6, json = 7, function = 8, array = 9 };
+
+const AnyType = packed struct(u128) {
+    type: JsCompatibleType,
+    value: u124,
+};
 
 fn EncodedType(comptime JsT: JsCompatibleType, comptime T: type) type {
     if (@bitSizeOf(T) > 124) {
@@ -45,6 +56,10 @@ fn EncodedType(comptime JsT: JsCompatibleType, comptime T: type) type {
 
         fn value(self: @This()) T {
             return self.v;
+        }
+
+        fn asAny(self: @This()) AnyType {
+            return @bitCast(self);
         }
     };
 }
@@ -68,6 +83,10 @@ const Float = packed struct(u128) {
     fn value(self: @This()) f64 {
         return self.v;
     }
+
+    fn asAny(self: @This()) AnyType {
+        return @bitCast(self);
+    }
 };
 
 fn BoolLike(comptime jsT: JsCompatibleType) type {
@@ -85,6 +104,10 @@ fn BoolLike(comptime jsT: JsCompatibleType) type {
 
         fn value(self: @This()) bool {
             return self.v;
+        }
+
+        fn asAny(self: @This()) AnyType {
+            return @bitCast(self);
         }
     };
 }
@@ -116,6 +139,10 @@ fn BytesLike(comptime jsT: JsCompatibleType) type {
             const vPtr: [*]u8 = @ptrFromInt(self.ptr);
             return vPtr[0..self.len];
         }
+
+        fn asAny(self: @This()) AnyType {
+            return @bitCast(self);
+        }
     };
 }
 
@@ -129,42 +156,48 @@ const String = BytesLike(.string);
 const JSON = BytesLike(.json);
 
 // TODO: Maybe move this to a "array of compatible types" like type instead of function specific
-const FunctionArguments = packed struct(u128) {
+const Array = packed struct(u128) {
+    type: JsCompatibleType = .array,
     ptr: usize,
     len: usize,
-    _: u64 = 0,
+    _: u60 = 0,
     const empty: @This() = .{ .ptr = 0, .len = 0 };
+
+    fn asAny(self: @This()) AnyType {
+        return @bitCast(self);
+    }
 };
 
-fn FunctionLike(comptime returnType: anytype) type {
-    return packed struct(u128) {
-        type: JsCompatibleType = .function,
+const Function = packed struct(u128) {
+    type: JsCompatibleType = .function,
 
-        ptr: usize,
-        origin: enum(u1) { zig = 0, js = 1 },
+    ptr: usize,
+    origin: enum(u1) { zig = 0, js = 1 },
 
-        _: u91 = 0,
+    _: u91 = 0,
 
-        const FunctionType = fn (args: FunctionArguments) returnType;
+    const FunctionType = fn (args: Array) AnyType;
 
-        fn init(function: FunctionType) @This() {
-            return .{
-                .ptr = @intFromPtr(&function),
-                .origin = .zig,
-            };
+    fn init(function: FunctionType) @This() {
+        return .{
+            .ptr = @intFromPtr(&function),
+            .origin = .zig,
+        };
+    }
+
+    fn call(self: @This(), args: Array) AnyType {
+        const function: *const FunctionType = @ptrFromInt(self.ptr);
+        if (self.origin == .zig) {
+            return @call(.auto, function, .{args});
+        } else {
+            return js.call(self, args);
         }
+    }
 
-        fn call(self: @This(), args: FunctionArguments) returnType {
-            const function: *const FunctionType = @ptrFromInt(self.ptr);
-            if (self.origin == .zig) {
-                return @call(.auto, function, .{args});
-            } else {
-                // TODO: Import JS Call logic here
-                unreachable;
-            }
-        }
-    };
-}
+    fn asAny(self: @This()) AnyType {
+        return @bitCast(self);
+    }
+};
 
 export fn greet(arg: String) String {
     // Get the real value passed to us by javascript
@@ -277,14 +310,16 @@ export fn printJSON(arg: JSON) void {
     js.log(String.init(message));
 }
 
-fn printHelloWorld(_: FunctionArguments) void {
+fn printHelloWorld(_: Array) AnyType {
     js.log(String.init("This function was passed as an argument."));
+
+    return Void.init(false).asAny();
 }
 
-export fn testFunctionRef() FunctionLike(void) {
-    return FunctionLike(void).init(printHelloWorld);
+export fn testFunctionRef() Function {
+    return Function.init(printHelloWorld);
 }
 
-export fn testFunction(arg: FunctionLike(void)) void {
-    arg.call(FunctionArguments.empty);
+export fn testFunction(arg: Function) void {
+    _ = arg.call(Array.empty);
 }

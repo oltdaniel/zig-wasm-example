@@ -10,6 +10,7 @@ class CompatibleType {
     static #_string = 6;
     static #_json = 7;
     static #_function = 8;
+    static #_array = 9;
 
     static get void() { return this.#_void; }
     static get bool() { return this.#_bool; }
@@ -20,6 +21,7 @@ class CompatibleType {
     static get string() { return this.#_string; }
     static get json() { return this.#_json; }
     static get function() { return this.#_function; }
+    static get array() { return this.#_array; }
 
     static mapVarToCompatibleType(v) {
         switch (typeof v) {
@@ -38,6 +40,9 @@ class CompatibleType {
             case 'object': {
                 if (v instanceof Uint8Array || v instanceof ArrayBuffer) {
                     return this.bytes;
+                }
+                if(Array.isArray(v)) {
+                    return this.array;
                 }
                 return this.json;
             }
@@ -70,7 +75,7 @@ export default class ZigWASMWrapper {
         this.#wasm = obj.instance.exports;
 
         // Expose the exported custom functions that are not implementation relevant
-        for (let name of Object.keys(this.#wasm).filter(n => !['malloc', 'free', 'memory'].includes(n))) {
+        for (let name of Object.keys(this.#wasm).filter(n => !['malloc', 'free', 'memory', 'call'].includes(n))) {
             this[name] = (...args) => {
                 return this.call(name, ...args)
             }
@@ -86,11 +91,16 @@ export default class ZigWASMWrapper {
                     let message = inst.decodeCompatibleType(arg).value;
                     console.log(message);
                 },
-                call: (arg, arg2) => {
-                    // TODO: add functionarguments as compatibletype
-                    let f = inst.decodeCompatibleType(arg).value;
-                    let args = inst.decodeCompatibleType(arg2).value;
-                    f(args);
+                call: (func, args) => {
+                    let f = inst.decodeCompatibleType(func).value;
+
+                    if(Object.getPrototypeOf(f).origin != 1) {
+                        throw new Error('Function to be executed in JS expected to be of JS origin.');
+                    }
+
+                    let a = inst.decodeCompatibleType(args).value;
+                    
+                    return inst.encodeCompatibleType(f(a));
                 }
             },
         })
@@ -157,13 +167,26 @@ export default class ZigWASMWrapper {
                 return { type, value: JSON.parse(str) };
             }
             case CompatibleType.function: {
-                const f = function() {
-                    console.log('Calling zig functions is not supported right now');
+                const f = function (...args) {
+                    if(this.prototype.origin == 1) {
+                        return this.prototype.inst.#functionTable[this.prototype.ptr](args)
+                    } else {
+                        let wasmArgs = [this, args].map(a => this.prototype.inst.encodeCompatibleType(a)).flat();
+
+                        let r = this.prototype.inst.#wasm.call(...wasmArgs);
+                
+                        return r ? this.prototype.inst.decodeCompatibleType(r).value : undefined;
+                    }
                 }
                 // Store function attributes in prototype so we can recoginize it again
                 f.prototype.ptr = value & 0xFFFFFFFFn;
                 f.prototype.origin = (value >> 32n) & 0x1n;
-                return { type, value: f };
+                f.prototype.inst = this;
+
+                const boundF = f.bind(f);
+                Object.setPrototypeOf(boundF, f.prototype);
+
+                return { type, value: boundF };
             }
             default:
                 throw new Error('Type is not implemented!');
@@ -182,7 +205,7 @@ export default class ZigWASMWrapper {
             case CompatibleType.bool:
             case CompatibleType.int:
             case CompatibleType.uint:
-                value = v;
+                value = BigInt.asUintN(124, BigInt(v));
                 break;
             case CompatibleType.float: {
                 const tempBuf = new Uint8Array(8);
@@ -199,7 +222,7 @@ export default class ZigWASMWrapper {
 
                 new Uint8Array(this.#wasm.memory.buffer, ptr, len).set(buf)
 
-                value = (BigInt(len) << 32n) | BigInt(ptr);
+                value = (BigInt.asUintN(32, BigInt(len)) << 32n) | BigInt.asUintN(32, BigInt(ptr));
                 break;
             }
             case CompatibleType.string: {
@@ -209,7 +232,7 @@ export default class ZigWASMWrapper {
 
                 new Uint8Array(this.#wasm.memory.buffer, ptr, len).set(buf)
 
-                value = (BigInt(len) << 32n) | BigInt(ptr);
+                value = (BigInt.asUintN(32, BigInt(len)) << 32n) | BigInt.asUintN(32, BigInt(ptr));
                 break;
             }
             case CompatibleType.json: {
@@ -219,16 +242,23 @@ export default class ZigWASMWrapper {
 
                 new Uint8Array(this.#wasm.memory.buffer, ptr, len).set(buf)
 
-                value = (BigInt(len) << 32n) | BigInt(ptr);
+                value = (BigInt.asUintN(32, BigInt(len)) << 32n) | BigInt.asUintN(32, BigInt(ptr));
                 break;
             }
             case CompatibleType.function: {
-                if(v.prototype.origin == 0 && Object.hasOwn(v.prototype, 'ptr')) {
-                    value = (BigInt(v.prototype.origin) << 32n) | BigInt(v.prototype.ptr);
+                if(v.prototype && Object.hasOwn(v.prototype, 'origin') && Object.hasOwn(v.prototype, 'ptr') && v.prototype.origin == 0) {
+                    value = (BigInt.asUintN(1, v.prototype.origin) << 32n) | BigInt.asUintN(32, v.prototype.ptr);
                 } else {
-                    // TODO: assign function an id and store in function table
-                    throw new Error('encoding js functions is not supported right now')
+                    const key = Object.keys(this.#functionTable).length;
+                    this.#functionTable[key] = v;
+
+                    value = (BigInt.asUintN(1, 1n) << 32n) | BigInt.asUintN(32, BigInt(key));
                 }
+                break;
+            }
+            case CompatibleType.array: {
+                // TODO: implement array logic
+                value = 0;
                 break;
             }
             default:
