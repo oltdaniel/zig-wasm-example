@@ -337,6 +337,8 @@ export default class ZigWASMWrapper {
                     let ptr = Number(value & 0xffffffffn);
                     let len = Number(value >> 32n);
 
+                    // TODO: Free all items within the array first, then free the array itself
+
                     // NOTE: Length for array represents number of items, each item 128bit
                     this.#wasm.free(ptr, len * 16);
                     break;

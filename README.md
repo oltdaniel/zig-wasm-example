@@ -21,6 +21,11 @@ wasm.printJSON({message: "Greetings"});
 
 wasm.silence();
 // => does nothing
+
+wasm.testFunction((...args) => {
+    console.log('I got called from zig with these arguments=', args)
+})
+// => prints "I got called from zig with these arguments= ['Hello', 'World]"
 ```
 
 And the zig code excluding the type hanlding is also straightforward:
@@ -44,6 +49,11 @@ export fn greet(arg: String) String {
 export fn printJSON(arg: JSON) void {
     const message = std.fmt.allocPrint(gpa, "JSON = {s}!", .{arg.value()}) catch @panic("Oops");
     js.log(String.init(message));
+}
+
+export fn testFunction(arg: Function) AnyType {
+    const args = Array.from(&.{ String.init("Hello").asAny(), String.init("World").asAny() });
+    return arg.call(args);
 }
 ```
 

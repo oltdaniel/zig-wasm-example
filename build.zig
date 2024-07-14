@@ -48,6 +48,7 @@ pub fn build(b: *std.Build) void {
     wasm.entry = .disabled; // disables entry point
     wasm.rdynamic = true; // expose exported functions to wasm
 
+    // Allow for some allocation headroom
     wasm.max_memory = std.wasm.page_size * 100;
 
     // This declares intent for the wasmrary to be installed into the standard
