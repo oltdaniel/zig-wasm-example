@@ -95,32 +95,40 @@ const Float = packed struct(u128) {
     }
 };
 
-fn BoolLike(comptime JsT: JsCompatibleType) type {
-    return packed struct(u128) {
-        type: JsCompatibleType = JsT,
-        v: bool,
-        // Placeholder to keep fixed packed structs filled
-        _: u123 = 0,
+const Void = packed struct(u128) {
+    type: JsCompatibleType = .void,
+    _: u124 = 0,
 
-        fn init(v: bool) @This() {
-            return .{
-                .v = v,
-            };
-        }
+    fn init() @This() {
+        return .{};
+    }
 
-        fn value(self: @This()) bool {
-            assertType(self.type, JsT);
-            return self.v;
-        }
+    fn value(_: @This()) void {
+        return undefined;
+    }
+};
 
-        fn asAny(self: @This()) AnyType {
-            return @bitCast(self);
-        }
-    };
-}
+const Bool = packed struct(u128) {
+    type: JsCompatibleType = .bool,
+    v: bool,
+    // Placeholder to keep fixed packed structs filled
+    _: u123 = 0,
 
-const Void = BoolLike(.void);
-const Bool = BoolLike(.bool);
+    fn init(v: bool) @This() {
+        return .{
+            .v = v,
+        };
+    }
+
+    fn value(self: @This()) bool {
+        assertType(self.type, .bool);
+        return self.v;
+    }
+
+    fn asAny(self: @This()) AnyType {
+        return @bitCast(self);
+    }
+};
 
 fn BytesLike(comptime JsT: JsCompatibleType) type {
     return packed struct(u128) {
@@ -162,6 +170,7 @@ const String = BytesLike(.string);
 
 // In zig there isn't a difference
 // TODO: Maybe abstract this to offer builtin parsing when calling .value
+//       For this we need a type argument for the json parser.
 const JSON = BytesLike(.json);
 
 // TODO: Maybe move this to a "array of compatible types" like type instead of function specific
@@ -277,7 +286,7 @@ export fn silence() void {
 }
 
 export fn testVoid() Void {
-    return Void.init(false);
+    return Void.init();
 }
 
 export fn printVoid(arg: Void) void {

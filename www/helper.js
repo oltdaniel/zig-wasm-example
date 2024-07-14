@@ -133,7 +133,7 @@ export default class ZigWASMWrapper {
             case CompatibleType.void:
                 return { type };
             case CompatibleType.bool:
-                return { type, value: !!!Number(value) };
+                return { type, value: ((value & 0x1n) == 1n) ? true : false };
             case CompatibleType.int:
                 return { type, value: BigInt.asIntN(124, value) };
             case CompatibleType.uint:
@@ -304,6 +304,7 @@ export default class ZigWASMWrapper {
 
     call(func, ...args) {
         // TODO: Implement freeing memory again after allocation/reading
+        //       Also free JS allocated resources like the function in the function table
         let wasmArgs = args.map(a => this.encodeCompatibleType(a)).flat();
 
         let r = this.#wasm[func](...wasmArgs);
