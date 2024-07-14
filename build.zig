@@ -16,17 +16,17 @@ pub fn build(b: *std.Build) void {
         .cpu_features_add = std.Target.wasm.featureSet(&.{
             .atomics,
             .bulk_memory,
-            // .extended_const, not supported by Safari
+            .exception_handling,
+            .extended_const,
+            // .multimemory, // not supported by Safari
             .multivalue,
             .mutable_globals,
             .nontrapping_fptoint,
             .reference_types,
-            //.relaxed_simd, not supported by Firefox or Safari
+            // .relaxed_simd, // not supported by Firefox or Safari
             .sign_ext,
-            // observed to cause Error occured during wast conversion :
-            // Unknown operator: 0xfd058 in Firefox 117
             .simd128,
-            // .tail_call, not supported by Safari
+            // .tail_call, // not supported by Safari
         }),
     });
 
@@ -47,6 +47,8 @@ pub fn build(b: *std.Build) void {
     // Compile options for browser target
     wasm.entry = .disabled; // disables entry point
     wasm.rdynamic = true; // expose exported functions to wasm
+
+    wasm.max_memory = std.wasm.page_size * 100;
 
     // This declares intent for the wasmrary to be installed into the standard
     // location when the user invokes the "install" step (the default step when

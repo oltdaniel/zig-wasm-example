@@ -15,32 +15,59 @@
       let wasm = await ZigWASMWrapper.initialize("./main.wasm");
 
       // === Interface Test ===
+      console.log("=== Testing silence");
       wasm.silence();
 
+      console.log("=== Testing void type");
       console.log(wasm.testVoid());
-      wasm.printVoid(null);
+      wasm.printVoid(undefined);
 
+      console.log("=== Testing bool type");
       console.log(wasm.testBool());
       wasm.printBool(true);
 
+      console.log("=== Testing integer type");
       console.log(wasm.testInt());
       wasm.printInt(-12345);
 
+      console.log("=== Testing unsigned integer type");
       console.log(wasm.testUint());
       wasm.printUint(12345);
 
+      console.log("=== Testing float type");
+      console.log(wasm.testFloat());
+      wasm.printFloat(1.2345);
+
+      console.log("=== Testing bytes type");
       console.log(wasm.testBytes());
       wasm.printBytes(new TextEncoder().encode("Hello World"));
 
+      console.log("=== Testing string type");
       console.log(wasm.testString());
       wasm.printString("Bye World");
 
+      console.log("=== Testing json type");
       console.log(wasm.testJSON());
       wasm.printJSON({ message: "Greetings" });
 
+      console.log("=== Testing zig function type");
+      const testFunctionRef = wasm.testFunctionRef();
+      console.log(testFunctionRef());
+      console.log(wasm.testFunction(testFunctionRef));
+      console.log(wasm.testFunctionWithArgs(testFunctionRef, ["Hello", "from", "JS"]));
+
+      console.log("=== Testing js function type");
+      console.log(wasm.testFunction((...args) => {
+        console.log('I got called by reference from Zig with these arguments =', args)
+        return "JS says hello!"
+      }))
+
+      console.log("=== Testing greet");
       console.log(wasm.greet("Daniel"));
 
       // === Example Application ===
+      console.log("=== Testing example app");
+
       function measure(label, func) {
         const t0 = performance.now();
 
@@ -69,6 +96,8 @@
       });
 
       // === Hash Benchmark ===
+      console.log("=== Testing hash benchmark");
+
       const ROUNDS = 1000;
 
       const t0 = performance.now();
