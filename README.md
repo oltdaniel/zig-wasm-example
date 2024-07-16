@@ -1,5 +1,8 @@
 # Zig WASM Example
 
+> [!IMPORTANT]  
+> This project has been re-written as an actual library and can be found at [oltdaniel/zig-js-interplay](https://github.com/oltdaniel/zig-js-interplay). This repo will probably be archived in the future.
+
 This repo is playing with Zig and WASM to see how easy or hard it is passing values between them, without an ready-to-go generator like in `wasm-pack` for Rust.
 
 ## Example
